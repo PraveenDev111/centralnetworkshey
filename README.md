@@ -10,12 +10,7 @@ A centralized network management system for monitoring and managing network devi
 - User authentication
 - Responsive web interface
 
-## Prerequisites
-
-- Python 3.7+
-- pip (Python package manager)
-
-## Installation
+## Getting Started
 
 1. Clone the repository:
    ```bash
@@ -23,36 +18,17 @@ A centralized network management system for monitoring and managing network devi
    cd centralnetworkshey
    ```
 
-2. Create and activate a virtual environment (recommended):
-   ```bash
-   python -m venv venv
-   source venv/bin/activate  # On Windows: venv\Scripts\activate
-   ```
-
-3. Install the required packages:
+2. Install the required packages:
    ```bash
    pip install -r requirements.txt
    ```
 
-## Configuration
-
-1. Copy `.env.example` to `.env` and update the configuration:
-   ```bash
-   cp .env.example .env
-   ```
-
-2. Update the environment variables in `.env` as needed.
-
-## Usage
-
-1. Start the application:
+3. Start the application:
    ```bash
    python app.py
    ```
 
-2. Access the web interface at `http://localhost:8000`
-
-3. Default login credentials:
+4. Access the web interface at `http://localhost:8000`
    - Username: admin
    - Password: password
 
