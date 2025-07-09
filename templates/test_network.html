@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Test Network Connectivity{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    <h2>Network Connectivity Test</h2>
+    <p class="text-muted">Check connectivity to network devices and services</p>
+    
+    <div class="card mb-4">
+        <div class="card-header">
+            <h5 class="mb-0">Quick Tests</h5>
+        </div>
+        <div class="card-body">
+            <button id="testAllBtn" class="btn btn-primary">
+                <i class="fas fa-sync-alt"></i> Run All Tests
+            </button>
+            <button id="testGNS3Btn" class="btn btn-info">
+                <i class="fas fa-network-wired"></i> Test GNS3 Server
+            </button>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h5 class="mb-0">Test Results</h5>
+        </div>
+        <div class="card-body p-0">
+            <div class="table-responsive">
+                <table class="table table-hover mb-0">
+                    <thead class="table-light">
+                        <tr>
+                            <th>Device</th>
+                            <th>Host/IP</th>
+                            <th>Ping</th>
+                            <th>Ports</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="testResults">
+                        {% for result in results %}
+                        <tr>
+                            <td>{{ result.name }}</td>
+                            <td><code>{{ result.host }}</code></td>
+                            <td>
+                                <span class="badge bg-{{ 'success' if result.ping else 'danger' }}">
+                                    {% if result.ping %}
+                                        <i class="fas fa-check"></i> Online
+                                    {% else %}
+                                        <i class="fas fa-times"></i> Offline
+                                    {% endif %}
+                                </span>
+                            </td>
+                            <td>
+                                {% for port, is_open in result.ports.items() %}
+                                    <span class="badge bg-{{ 'success' if is_open else 'secondary' }} me-1" 
+                                          title="Port {{ port }}">
+                                        {{ port }}
+                                    </span>
+                                {% endfor %}
+                            </td>
+                            <td>
+                                {% if result.device %}
+                                    <a href="{{ url_for('console', device_ip=result.device.ip) }}" 
+                                       class="btn btn-sm btn-outline-primary">
+                                        <i class="fas fa-terminal"></i> Console
+                                    </a>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Status Toast -->
+<div class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+    <div id="statusToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <div class="toast-header">
+            <strong class="me-auto" id="toastTitle">Status</strong>
+            <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+        </div>
+        <div class="toast-body" id="toastMessage">
+            Test in progress...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+$(document).ready(function() {
+    // Initialize toast
+    var toastEl = document.getElementById('statusToast');
+    var toast = new bootstrap.Toast(toastEl, {delay: 3000});
+    
+    function showStatus(title, message, isError = false) {
+        $('#toastTitle').text(title);
+        $('#toastMessage').text(message);
+        $('#statusToast').removeClass('bg-danger text-white');
+        
+        if (isError) {
+            $('#statusToast').addClass('bg-danger text-white');
+        }
+        
+        toast.show();
+    }
+    
+    // Test all devices
+    $('#testAllBtn').click(function() {
+        showStatus('Testing', 'Running all network tests...');
+        location.reload();
+    });
+    
+    // Test GNS3 server specifically
+    $('#testGNS3Btn').click(function() {
+        showStatus('Testing', 'Testing GNS3 server connectivity...');
+        
+        // Test ping
+        $.get('/api/ping/localhost')
+            .done(function(data) {
+                if (data.alive) {
+                    showStatus('Success', 'GNS3 server is reachable!');
+                } else {
+                    showStatus('Warning', 'GNS3 server is not responding to ping', true);
+                }
+            })
+            .fail(function() {
+                showStatus('Error', 'Failed to test GNS3 server', true);
+            });
+    });
+    
+    // Auto-refresh every 30 seconds
+    setInterval(function() {
+        $('tr').each(function() {
+            const host = $(this).find('td:nth-child(2) code').text();
+            if (host) {
+                $.get(`/api/ping/${host}`, function(data) {
+                    const badge = $(`tr:contains(${host}) .badge`);
+                    if (data.alive) {
+                        badge.removeClass('bg-danger').addClass('bg-success')
+                             .html('<i class="fas fa-check"></i> Online');
+                    } else {
+                        badge.removeClass('bg-success').addClass('bg-danger')
+                             .html('<i class="fas fa-times"></i> Offline');
+                    }
+                });
+            }
+        });
+    }, 30000);
+});
+</script>
+{% endblock %}
