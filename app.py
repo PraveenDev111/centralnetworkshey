@@ -94,6 +94,45 @@ def dashboard():
             'device': device
         })
     
+    # Initialize results without running tests initially
+    results = []
+    for target in test_targets:
+        results.append({
+            'name': target['name'],
+            'host': target['host'],
+            'ping': None,  # Will be None until tested
+            'ports': {port: None for port in target['ports']},  # Initialize ports as None
+            'device': target.get('device')
+        })
+    
+    return render_template('dashboard.html', 
+                         devices=devices, 
+                         test_results=results,
+                         active_page='dashboard')
+
+@app.route('/refresh_status', methods=['POST'])
+def refresh_status():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Not authorized'}), 401
+    
+    # Get all test targets
+    inventory = load_inventory()
+    devices = inventory.get('devices', [])
+    test_targets = [
+        {'name': 'GNS3 Local Server', 'host': 'localhost', 'ports': [80, 3080, 5000]},
+        {'name': 'Google DNS', 'host': '8.8.8.8', 'ports': [53]},
+        {'name': 'Cloudflare DNS', 'host': '1.1.1.1', 'ports': [53]},
+    ]
+    
+    # Add devices to test targets
+    for device in devices:
+        test_targets.append({
+            'name': f"{device['hostname']} ({device['ip']})",
+            'host': device['ip'],
+            'ports': [22, 23, 80, 443],
+            'device': device
+        })
+    
     # Run tests
     results = []
     for target in test_targets:
@@ -111,14 +150,13 @@ def dashboard():
             'device': target.get('device')
         })
     
-    return render_template('dashboard.html', 
-                         devices=devices, 
-                         test_results=results,
-                         active_page='dashboard')
+    return jsonify(results)
 
 @app.route('/add_device', methods=['POST'])
 def add_device():
     if not session.get('logged_in'):
+        if request.is_json:
+            return jsonify({'status': 'error', 'message': 'Not authorized'}), 401
         return redirect(url_for('login'))
         
     hostname = request.form.get('hostname')
@@ -128,6 +166,8 @@ def add_device():
     device_type = request.form.get('device_type', 'cisco_ios')
     
     if not all([hostname, ip, username, password]):
+        if request.is_json:
+            return jsonify({'status': 'error', 'message': 'All fields are required'}), 400
         flash('All fields are required', 'danger')
         return redirect(url_for('dashboard'))
     
@@ -135,27 +175,46 @@ def add_device():
     
     # Check if device with same IP already exists
     if any(device['ip'] == ip for device in inventory.get('devices', [])):
+        if request.is_json:
+            return jsonify({'status': 'error', 'message': 'A device with this IP already exists'}), 400
         flash('A device with this IP already exists', 'danger')
         return redirect(url_for('dashboard'))
     
-    # Add new device
-    new_device = {
-        'id': str(uuid.uuid4()),
-        'hostname': hostname,
-        'ip': ip,
-        'username': username,
-        'password': password,  # In production, encrypt this!
-        'device_type': device_type,
-        'last_backup': None
-    }
-    
-    if 'devices' not in inventory:
-        inventory['devices'] = []
-    inventory['devices'].append(new_device)
-    save_inventory(inventory)
-    
-    flash(f'Device {hostname} added successfully', 'success')
-    return redirect(url_for('dashboard'))
+    try:
+        # Add new device
+        new_device = {
+            'id': str(uuid.uuid4()),
+            'hostname': hostname,
+            'ip': ip,
+            'username': username,
+            'password': password,  # In production, encrypt this!
+            'device_type': device_type,
+            'last_backup': None
+        }
+        
+        if 'devices' not in inventory:
+            inventory['devices'] = []
+        inventory['devices'].append(new_device)
+        save_inventory(inventory)
+        
+        if request.is_json:
+            return jsonify({
+                'status': 'success',
+                'message': f'Device {hostname} added successfully',
+                'device': new_device
+            })
+            
+        flash(f'Device {hostname} added successfully', 'success')
+        return redirect(url_for('dashboard'))
+        
+    except Exception as e:
+        if request.is_json:
+            return jsonify({
+                'status': 'error',
+                'message': f'Failed to add device: {str(e)}'
+            }), 500
+        flash(f'Failed to add device: {str(e)}', 'danger')
+        return redirect(url_for('dashboard'))
 
 @app.route('/console/<device_ip>', methods=['GET', 'POST'])
 def console(device_ip):
@@ -191,7 +250,17 @@ def console(device_ip):
             except Exception as e:
                 output += f"Error executing command: {str(e)}\n"
     
-    return render_template('console.html', device=device, output=output)
+    # Get all devices for the sidebar
+    devices = inventory.get('devices', [])
+    
+    # Add status to each device
+    for dev in devices:
+        dev['status'] = 'online' if ping_host(dev['ip']) else 'offline'
+    
+    return render_template('console.html', 
+                         device=device, 
+                         output=output,
+                         devices=devices)
 
 @app.route('/testnetwork')
 def test_network():
@@ -279,14 +348,22 @@ def api_ping(ip):
             'message': str(e)
         }), 500
 
-@app.route('/api/device/<device_id>', methods=['DELETE'])
+@app.route('/device/<device_id>', methods=['DELETE'])
 @login_required
 def delete_device(device_id):
-    """API endpoint to delete a device."""
+    if not session.get('logged_in'):
+        return jsonify({'status': 'error', 'message': 'Not authorized'}), 401
+        
     try:
         inventory = load_inventory()
-        initial_count = len(inventory['devices'])
-        inventory['devices'] = [d for d in inventory['devices'] if str(d.get('id')) != device_id]
+        devices = inventory.get('devices', [])
+        initial_count = len(devices)
+        
+        # Convert device_id to string for comparison
+        device_id = str(device_id)
+        
+        # Remove the device with the matching ID
+        inventory['devices'] = [d for d in devices if str(d.get('id')) != device_id]
         
         if len(inventory['devices']) < initial_count:
             save_inventory(inventory)
@@ -299,10 +376,11 @@ def delete_device(device_id):
                 'status': 'error',
                 'message': 'Device not found'
             }), 404
+            
     except Exception as e:
         return jsonify({
             'status': 'error',
-            'message': str(e)
+            'message': f'Failed to delete device: {str(e)}'
         }), 500
 
 @app.route('/backup/all', methods=['POST'])

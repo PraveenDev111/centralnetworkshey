@@ -2,11 +2,35 @@
 
 {% block title %}Dashboard - CONNECT CNMS{% endblock %}
 
+{% block styles %}
+{{ super() }}
+<style>
+    .status-refresh {
+        cursor: pointer;
+        opacity: 0.7;
+        transition: all 0.2s;
+    }
+    .status-refresh:hover {
+        opacity: 1;
+        transform: rotate(180deg);
+    }
+    .status-refresh.loading {
+        animation: spin 1s linear infinite;
+    }
+    @keyframes spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+    }
+</style>
+{% endblock %}
+
 {% block content %}
 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-    <h1 class="h2">Network Status</h1>
+    <div class="d-flex align-items-center">
+        <h1 class="h2 mb-0">Network Status</h1>
+    </div>
     <div class="btn-toolbar mb-2 mb-md-0">
-        <button id="testAllBtn" class="btn btn-sm btn-outline-primary me-2">
+        <button id="testAllBtn" class="btn btn-sm btn-outline-primary">
             <i class="fas fa-sync-alt me-1"></i> Refresh All
         </button>
     </div>
@@ -14,27 +38,27 @@
 
 <!-- Network Status Cards -->
 <div class="row mb-4">
-    <div class="col-md-4">
-        <div class="card text-white bg-primary mb-3">
-            <div class="card-body">
-                <h5 class="card-title">Total Devices</h5>
-                <p class="card-text display-4">{{ devices|length }}</p>
+    <div class="col-12 col-sm-6 col-md-4 col-lg-3 mb-3">
+        <div class="card text-white bg-primary">
+            <div class="card-body text-center py-3">
+                <h5 class="card-title mb-1">Total Devices</h5>
+                <p class="card-text display-5 mb-0">{{ devices|length }}</p>
             </div>
         </div>
     </div>
-    <div class="col-md-4">
-        <div class="card text-white bg-success mb-3">
-            <div class="card-body">
-                <h5 class="card-title">Online</h5>
-                <p class="card-text display-4">{{ test_results|selectattr('ping')|list|length }}</p>
+    <div class="col-12 col-sm-6 col-md-4 col-lg-3 mb-3">
+        <div class="card text-white bg-success">
+            <div class="card-body text-center py-3">
+                <h5 class="card-title mb-1">Online</h5>
+                <p class="card-text display-5 mb-0">{{ test_results|selectattr('ping')|list|length }}</p>
             </div>
         </div>
-    </div>
-    <div class="col-md-4">
-        <div class="card text-white bg-danger mb-3">
-            <div class="card-body">
-                <h5 class="card-title">Offline</h5>
-                <p class="card-text display-4">{{ test_results|rejectattr('ping')|list|length }}</p>
+    </div>  
+    <div class="col-12 col-sm-6 col-md-4 col-lg-3 mb-3">
+        <div class="card text-white bg-danger">
+            <div class="card-body text-center py-3">
+                <h5 class="card-title mb-1">Offline</h5>
+                <p class="card-text display-5 mb-0">{{ test_results|rejectattr('ping')|list|length }}</p>
             </div>
         </div>
     </div>
@@ -60,7 +84,9 @@
                     <tr>
                         <th>Device</th>
                         <th>Host/IP</th>
-                        <th>Status</th>
+                        <th>Status <button id="refreshStatusBtn" class="btn btn-link p-0 ms-2" title="Refresh Status">
+                            <i class="fas fa-sync-alt status-refresh"></i>
+                        </button></th>
                         <th>Ports</th>
                         <th>Actions</th>
                     </tr>
@@ -71,13 +97,17 @@
                         <td>{{ result.name }}</td>
                         <td><code>{{ result.host }}</code></td>
                         <td>
-                            <span class="badge bg-{{ 'success' if result.ping else 'danger' }}">
-                                {% if result.ping %}
-                                    <i class="fas fa-check"></i> Online
-                                {% else %}
-                                    <i class="fas fa-times"></i> Offline
-                                {% endif %}
-                            </span>
+                            <div class="d-flex align-items-center">
+                                <span class="badge bg-{{ 'success' if result.ping is not none and result.ping else 'secondary' if result.ping is none else 'danger' }}">
+                                    {% if result.ping is none %}
+                                        <i class="fas fa-question"></i> Not Tested
+                                    {% elif result.ping %}
+                                        <i class="fas fa-check"></i> Online
+                                    {% else %}
+                                        <i class="fas fa-times"></i> Offline
+                                    {% endif %}
+                                </span>
+                            </div>
                         </td>
                         <td>
                             {% for port, status in result.ports.items() %}
@@ -159,6 +189,56 @@
 {% block scripts %}
 {{ super() }}
 <script>
+    document.addEventListener('DOMContentLoaded', function() {
+        const refreshBtn = document.getElementById('refreshStatusBtn');
+        const refreshIcon = refreshBtn.querySelector('i');
+        
+        refreshBtn.addEventListener('click', function() {
+            refreshIcon.classList.add('loading');
+            
+            fetch('/refresh_status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                credentials: 'same-origin'
+            })
+            .then(response => response.json())
+            .then(data => {
+                // Update the status for each device
+                const rows = document.querySelectorAll('tbody tr');
+                rows.forEach((row, index) => {
+                    const result = data[index];
+                    if (!result) return;
+                    
+                    // Update status badge
+                    const statusBadge = row.querySelector('td:nth-child(3) .badge');
+                    statusBadge.className = `badge bg-${result.ping ? 'success' : 'danger'}`;
+                    
+                    const statusIcon = statusBadge.querySelector('i');
+                    statusIcon.className = result.ping ? 'fas fa-check' : 'fas fa-times';
+                    statusIcon.nextSibling.textContent = result.ping ? ' Online' : ' Offline';
+                    
+                    // Update port statuses
+                    const portBadges = row.querySelectorAll('td:nth-child(4) .badge');
+                    portBadges.forEach(badge => {
+                        const port = parseInt(badge.textContent.trim());
+                        const status = result.ports[port];
+                        if (status) {
+                            badge.className = `badge bg-${status === 'Open' ? 'success' : 'secondary'} me-1`;
+                        }
+                    });
+                });
+            })
+            .catch(error => {
+                console.error('Error refreshing status:', error);
+                alert('Failed to refresh status. Please try again.');
+            })
+            .finally(() => {
+                refreshIcon.classList.remove('loading');
+            });
+        });
+    });
 function showStatus(title, message, isError = false) {
     const toast = new bootstrap.Toast(document.getElementById('statusToast'));
     const toastTitle = document.getElementById('toastTitle');
@@ -208,43 +288,93 @@ $(document).ready(function() {
     });
 
     // Handle add device form submission
-    $('#addDeviceForm').on('submit', function(e) {
+    $(document).off('submit', '#addDeviceForm').on('submit', '#addDeviceForm', function(e) {
         e.preventDefault();
-        const formData = $(this).serialize();
+        const $form = $(this);
+        const $submitBtn = $form.find('button[type="submit"]');
+        const originalBtnText = $submitBtn.html();
+        
+        // Disable submit button to prevent double submission
+        $submitBtn.prop('disabled', true).html(
+            '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...'
+        );
+        
+        // Show loading state
+        const $modal = $form.closest('.modal');
+        const $modalContent = $modal.find('.modal-content');
+        $modalContent.css('opacity', '0.7').css('pointer-events', 'none');
         
         $.ajax({
             type: 'POST',
-            url: $(this).attr('action'),
-            data: formData,
+            url: $form.attr('action'),
+            data: $form.serialize(),
+            dataType: 'json',
             success: function(response) {
-                showStatus('Success', 'Device added successfully');
-                $('#addDeviceModal').modal('hide');
-                setTimeout(() => location.reload(), 1000);
+                if (response && response.status === 'success') {
+                    showStatus('Success', response.message || 'Device added successfully');
+                    // Reset form
+                    $form.trigger('reset');
+                    // Hide modal
+                    $modal.modal('hide');
+                    // Reload the page after a short delay to show success message
+                    setTimeout(() => window.location.reload(), 1000);
+                } else {
+                    const errorMsg = (response && response.message) || 'Failed to add device';
+                    showStatus('Error', errorMsg, true);
+                    $submitBtn.prop('disabled', false).html(originalBtnText);
+                }
             },
             error: function(xhr) {
-                showStatus('Error', 'Failed to add device: ' + (xhr.responseJSON?.error || 'Unknown error'), true);
+                const errorMsg = (xhr.responseJSON && xhr.responseJSON.message) || xhr.statusText || 'Unknown error';
+                showStatus('Error', 'Failed to add device: ' + errorMsg, true);
+                $submitBtn.prop('disabled', false).html(originalBtnText);
+            },
+            complete: function() {
+                // Re-enable modal content
+                $modalContent.css('opacity', '').css('pointer-events', '');
             }
         });
     });
 
-    // Reset form when modal is closed
+    // Reset form and re-enable button when modal is closed
     $('#addDeviceModal').on('hidden.bs.modal', function () {
-        $('#addDeviceForm')[0].reset();
+        const $form = $(this).find('form');
+        $form.trigger('reset');
+        $form.find('button[type="submit"]').prop('disabled', false).html('Add Device');
     });
 
     // Remove device functionality
-    $('.remove-device').on('click', function() {
-        const deviceId = $(this).data('device-id');
+    $(document).off('click', '.remove-device').on('click', '.remove-device', function(e) {
+        e.preventDefault();
+        const $button = $(this);
+        const deviceId = $button.data('device-id');
+        const originalBtnHtml = $button.html();
+        
         if (confirm('Are you sure you want to remove this device?')) {
+            // Disable the button and show loading state
+            $button.prop('disabled', true).html(
+                '<span class="spinner-border spinner-border-sm" role="status"></span>'
+            );
+            
             $.ajax({
                 url: `/device/${deviceId}`,
                 method: 'DELETE',
-                success: function() {
-                    showStatus('Success', 'Device removed successfully');
-                    location.reload();
+                dataType: 'json',
+                success: function(response) {
+                    if (response && response.status === 'success') {
+                        showStatus('Success', response.message || 'Device removed successfully');
+                        // Reload the page after a short delay to show success message
+                        setTimeout(() => window.location.reload(), 1000);
+                    } else {
+                        const errorMsg = (response && response.message) || 'Failed to remove device';
+                        showStatus('Error', errorMsg, true);
+                        $button.prop('disabled', false).html(originalBtnHtml);
+                    }
                 },
                 error: function(xhr) {
-                    showStatus('Error', 'Failed to remove device', true);
+                    const errorMsg = (xhr.responseJSON && xhr.responseJSON.message) || xhr.statusText || 'Unknown error';
+                    showStatus('Error', 'Failed to remove device: ' + errorMsg, true);
+                    $button.prop('disabled', false).html(originalBtnHtml);
                 }
             });
         }
