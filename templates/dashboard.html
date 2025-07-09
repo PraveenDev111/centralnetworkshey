@@ -84,9 +84,7 @@
                     <tr>
                         <th>Device</th>
                         <th>Host/IP</th>
-                        <th>Status <button id="refreshStatusBtn" class="btn btn-link p-0 ms-2" title="Refresh Status">
-                            <i class="fas fa-sync-alt status-refresh"></i>
-                        </button></th>
+                        <th>Status</th>
                         <th>Ports</th>
                         <th>Actions</th>
                     </tr>
@@ -259,6 +257,145 @@ function showStatus(title, message, isError = false) {
     toast.show();
 }
 
+// Function to update the device status cards
+function updateStatusCards(onlineCount, offlineCount, totalCount) {
+    // Update online count
+    $('.card.bg-success .display-5').text(onlineCount);
+    // Update offline count
+    $('.card.bg-danger .display-5').text(offlineCount);
+    // Update total count
+    $('.card.bg-primary .display-5').text(totalCount);
+}
+
+// Function to update the device status table
+function updateStatusTable(results) {
+    const tbody = $('#testResults');
+    tbody.empty();
+    
+    results.forEach(device => {
+        const statusBadge = device.ping ? 
+            '<span class="badge bg-success">Online</span>' : 
+            '<span class="badge bg-danger">Offline</span>';
+            
+        let portsHtml = '';
+        if (device.ports) {
+            portsHtml = Object.entries(device.ports).map(([port, status]) => {
+                const badgeClass = status === 'Open' ? 'bg-success' : 'bg-secondary';
+                return `<span class="badge ${badgeClass} me-1">${port}: ${status}</span>`;
+            }).join('');
+        }
+        
+        const row = `
+            <tr>
+                <td>${device.name}</td>
+                <td><code>${device.host}</code></td>
+                <td>${statusBadge}</td>
+                <td>${portsHtml}</td>
+                <td>
+                    <div class="btn-group btn-group-sm">
+                        <a href="/console/${device.host}" class="btn btn-outline-primary" title="Console">
+                            <i class="fas fa-terminal"></i>
+                        </a>
+                        <a href="/backup/${device.host}" class="btn btn-outline-success" title="Backup">
+                            <i class="fas fa-download"></i>
+                        </a>
+                        <button class="btn btn-outline-danger remove-device" data-device-id="${device.device?.id || ''}" title="Remove">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `;
+        tbody.append(row);
+    });
+}
+
+// Function to reset the refresh button state
+function resetRefreshButton() {
+    const $refreshBtn = $('#testAllBtn');
+    const $refreshIcon = $refreshBtn.find('i');
+    $refreshBtn.prop('disabled', false);
+    $refreshIcon.removeClass('fa-spin');
+}
+
+// Function to refresh device statuses
+function refreshDeviceStatuses() {
+    const $refreshBtn = $('#testAllBtn');
+    const $refreshIcon = $refreshBtn.find('i');
+    
+    // Show loading state
+    $refreshBtn.prop('disabled', true);
+    $refreshIcon.addClass('fa-spin');
+    
+    // Clear any existing timeouts to prevent multiple refreshes
+    if (window.refreshTimeout) {
+        clearTimeout(window.refreshTimeout);
+        window.refreshTimeout = null;
+    }
+    
+    // Set a timeout to ensure the spinner stops even if the request hangs
+    window.refreshTimeout = setTimeout(function() {
+        resetRefreshButton();
+        showStatus('Error', 'Request timed out', true);
+    }, 30000); // 30 seconds timeout
+    
+    // Make AJAX request to refresh statuses
+    $.ajax({
+        url: '/refresh_device_status',
+        method: 'POST',
+        dataType: 'json',
+        success: function(response) {
+            try {
+                if (response && response.status === 'success') {
+                    // Update status cards
+                    updateStatusCards(
+                        response.online_count || 0,
+                        response.offline_count || 0,
+                        (response.results || []).length
+                    );
+                    
+                    // Update status table
+                    if (response.results && response.results.length > 0) {
+                        updateStatusTable(response.results);
+                    }
+                    
+                    // Show success message
+                    showStatus('Success', 'Device statuses refreshed successfully');
+                } else {
+                    const errorMsg = (response && response.message) || 'Failed to refresh statuses';
+                    showStatus('Error', errorMsg, true);
+                }
+            } catch (e) {
+                console.error('Error processing response:', e);
+                showStatus('Error', 'Error processing server response', true);
+            }
+        },
+        error: function(xhr) {
+            try {
+                let errorMsg = 'Failed to refresh statuses';
+                if (xhr.responseJSON && xhr.responseJSON.message) {
+                    errorMsg = xhr.responseJSON.message;
+                } else if (xhr.statusText) {
+                    errorMsg = xhr.statusText;
+                }
+                showStatus('Error', errorMsg, true);
+            } catch (e) {
+                console.error('Error handling error response:', e);
+                showStatus('Error', 'An unexpected error occurred', true);
+            }
+        },
+        complete: function() {
+            // Clear the timeout
+            if (window.refreshTimeout) {
+                clearTimeout(window.refreshTimeout);
+                window.refreshTimeout = null;
+            }
+            // Reset the button state
+            resetRefreshButton();
+        }
+    });
+}
+
 $(document).ready(function() {
     // Initialize tooltips
     var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -272,11 +409,7 @@ $(document).ready(function() {
         placement: 'top'
     });
 
-    // Test all devices
-    $('#testAllBtn').click(function() {
-        showStatus('Testing', 'Running all network tests...');
-        location.reload();
-    });
+    // Test all devices handler is now handled by the document.on('click', '#testAllBtn')
 
     // Test GNS3 server
     $('#testGNS3Btn').click(function() {
@@ -287,6 +420,18 @@ $(document).ready(function() {
         }, 1500);
     });
 
+    // Handle Refresh All button click
+    $(document).on('click', '#testAllBtn', function(e) {
+        e.preventDefault();
+        e.stopPropagation(); // Prevent any other handlers
+        refreshDeviceStatuses();
+    });
+    
+    // Auto-refresh statuses after 3 seconds of page load
+    $(window).on('load', function() {
+        refreshDeviceStatuses();
+    });
+    
     // Add device form will submit normally and reload the page
     // No JavaScript needed for form submission
 

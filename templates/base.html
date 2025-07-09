@@ -236,9 +236,6 @@
                                 <a class="nav-link py-1 d-flex align-items-center" 
                                    href="{{ url_for('console', device_ip=device.ip) }}"
                                    title="{{ device.hostname }} ({{ device.ip }})">
-                                    <span class="device-status me-2 {% if device.status == 'online' %}text-success{% else %}text-secondary{% endif %}">
-                                        <i class="fas fa-circle" style="font-size: 0.6rem;"></i>
-                                    </span>
                                     <span class="text-truncate">{{ device.hostname|default(device.ip) }}</span>
                                 </a>
                             </li>

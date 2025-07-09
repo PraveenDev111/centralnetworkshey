@@ -78,14 +78,8 @@ def dashboard():
     if not isinstance(devices, list):
         devices = []
     
-    # Prepare test network data
-    test_targets = [
-        {'name': 'GNS3 Local Server', 'host': 'localhost', 'ports': [80, 3080, 5000]},
-        {'name': 'Google DNS', 'host': '8.8.8.8', 'ports': [53]},
-        {'name': 'Cloudflare DNS', 'host': '1.1.1.1', 'ports': [53]},
-    ]
-    
-    # Add devices to test targets
+    # Prepare test network data with only inventory devices
+    test_targets = []
     for device in devices:
         test_targets.append({
             'name': f"{device['hostname']} ({device['ip']})",
@@ -278,12 +272,7 @@ def test_network():
     if not session.get('logged_in'):
         return redirect(url_for('login'))
     
-    # Common network devices and their common ports
-    test_targets = [
-        {'name': 'GNS3 Local Server', 'host': 'localhost', 'ports': [80, 3080, 5000]},
-        {'name': 'Google DNS', 'host': '8.8.8.8', 'ports': [53]},
-        {'name': 'Cloudflare DNS', 'host': '1.1.1.1', 'ports': [53]},
-    ]
+    test_targets = []
     
     # Add devices from inventory
     try:
@@ -297,6 +286,7 @@ def test_network():
             })
     except Exception as e:
         flash(f'Error loading inventory: {str(e)}', 'danger')
+        return redirect(url_for('dashboard'))
     
     results = []
     for target in test_targets:
@@ -319,6 +309,61 @@ def test_network():
 @app.route('/api/port/<host>/<int:port>')
 def api_port_check(host, port):
     return jsonify({'status': 'success', 'open': check_port(host, port)})
+
+@app.route('/refresh_device_status', methods=['POST'])
+def refresh_device_status():
+    if not session.get('logged_in'):
+        return jsonify({'status': 'error', 'message': 'Not authorized'}), 401
+        
+    try:
+        # Get the current test targets from the inventory
+        inventory = load_inventory()
+        test_targets = []
+        
+        # Create test targets from devices
+        for device in inventory.get('devices', []):
+            test_targets.append({
+                'name': device['hostname'],
+                'host': device['ip'],
+                'ports': [22, 80, 443],  # Default ports to check
+                'device': device
+            })
+        
+        # Perform ping and port tests
+        results = []
+        for target in test_targets:
+            # Test ping
+            ping_result = ping_host(target['host'])
+            
+            # Test ports
+            port_results = {}
+            for port in target['ports']:
+                port_status = scan_port(target['host'], port)
+                port_results[port] = "Open" if port_status[1] == "Open" else "Closed"
+            
+            results.append({
+                'name': target['name'],
+                'host': target['host'],
+                'ping': ping_result,
+                'ports': port_results,
+                'device': target.get('device')
+            })
+        
+        # Update the test results in the session
+        session['test_results'] = results
+        
+        return jsonify({
+            'status': 'success',
+            'results': results,
+            'online_count': len([r for r in results if r['ping']]),
+            'offline_count': len([r for r in results if not r['ping']])
+        })
+        
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to refresh status: {str(e)}'
+        }), 500
 
 def login_required(f):
     """Decorator to ensure user is logged in."""
@@ -358,41 +403,6 @@ def api_ping(ip):
             'status': 'error',
             'message': str(e)
         }), 500
-
-'''@app.route('/device/<device_id>', methods=['DELETE'])
-@login_required
-def delete_device(device_id):
-    if not session.get('logged_in'):
-        return jsonify({'status': 'error', 'message': 'Not authorized'}), 401
-        
-    try:
-        inventory = load_inventory()
-        devices = inventory.get('devices', [])
-        initial_count = len(devices)
-        
-        # Convert device_id to string for comparison
-        device_id = str(device_id)
-        
-        # Remove the device with the matching ID
-        inventory['devices'] = [d for d in devices if str(d.get('id')) != device_id]
-        
-        if len(inventory['devices']) < initial_count:
-            save_inventory(inventory)
-            return jsonify({
-                'status': 'success',
-                'message': 'Device deleted successfully'
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Device not found'
-            }), 404
-            
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Failed to delete device: {str(e)}'
-        }), 500'''
 
 @app.route('/backup/all', methods=['POST'])
 @login_required
