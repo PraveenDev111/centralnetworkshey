@@ -155,8 +155,7 @@ def refresh_status():
 @app.route('/add_device', methods=['POST'])
 def add_device():
     if not session.get('logged_in'):
-        if request.is_json:
-            return jsonify({'status': 'error', 'message': 'Not authorized'}), 401
+        flash('Not authorized', 'danger')
         return redirect(url_for('login'))
         
     hostname = request.form.get('hostname')
@@ -166,8 +165,6 @@ def add_device():
     device_type = request.form.get('device_type', 'cisco_ios')
     
     if not all([hostname, ip, username, password]):
-        if request.is_json:
-            return jsonify({'status': 'error', 'message': 'All fields are required'}), 400
         flash('All fields are required', 'danger')
         return redirect(url_for('dashboard'))
     
@@ -175,8 +172,6 @@ def add_device():
     
     # Check if device with same IP already exists
     if any(device['ip'] == ip for device in inventory.get('devices', [])):
-        if request.is_json:
-            return jsonify({'status': 'error', 'message': 'A device with this IP already exists'}), 400
         flash('A device with this IP already exists', 'danger')
         return redirect(url_for('dashboard'))
     
@@ -197,24 +192,40 @@ def add_device():
         inventory['devices'].append(new_device)
         save_inventory(inventory)
         
-        if request.is_json:
-            return jsonify({
-                'status': 'success',
-                'message': f'Device {hostname} added successfully',
-                'device': new_device
-            })
-            
         flash(f'Device {hostname} added successfully', 'success')
         return redirect(url_for('dashboard'))
         
     except Exception as e:
-        if request.is_json:
-            return jsonify({
-                'status': 'error',
-                'message': f'Failed to add device: {str(e)}'
-            }), 500
         flash(f'Failed to add device: {str(e)}', 'danger')
         return redirect(url_for('dashboard'))
+
+@app.route('/device/<device_id>/delete', methods=['POST'])
+def delete_device(device_id):
+    if not session.get('logged_in'):
+        flash('Not authorized', 'danger')
+        return redirect(url_for('login'))
+        
+    try:
+        inventory = load_inventory()
+        devices = inventory.get('devices', [])
+        initial_count = len(devices)
+        
+        # Convert device_id to string for comparison
+        device_id = str(device_id)
+        
+        # Remove the device with the matching ID
+        inventory['devices'] = [d for d in devices if str(d.get('id')) != device_id]
+        
+        if len(inventory['devices']) < initial_count:
+            save_inventory(inventory)
+            flash('Device deleted successfully', 'success')
+        else:
+            flash('Device not found', 'danger')
+            
+    except Exception as e:
+        flash(f'Failed to delete device: {str(e)}', 'danger')
+    
+    return redirect(url_for('dashboard'))
 
 @app.route('/console/<device_ip>', methods=['GET', 'POST'])
 def console(device_ip):
@@ -348,7 +359,7 @@ def api_ping(ip):
             'message': str(e)
         }), 500
 
-@app.route('/device/<device_id>', methods=['DELETE'])
+'''@app.route('/device/<device_id>', methods=['DELETE'])
 @login_required
 def delete_device(device_id):
     if not session.get('logged_in'):
@@ -381,7 +392,7 @@ def delete_device(device_id):
         return jsonify({
             'status': 'error',
             'message': f'Failed to delete device: {str(e)}'
-        }), 500
+        }), 500'''
 
 @app.route('/backup/all', methods=['POST'])
 @login_required

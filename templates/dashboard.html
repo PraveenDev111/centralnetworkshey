@@ -287,97 +287,30 @@ $(document).ready(function() {
         }, 1500);
     });
 
-    // Handle add device form submission
-    $(document).off('submit', '#addDeviceForm').on('submit', '#addDeviceForm', function(e) {
-        e.preventDefault();
-        const $form = $(this);
-        const $submitBtn = $form.find('button[type="submit"]');
-        const originalBtnText = $submitBtn.html();
-        
-        // Disable submit button to prevent double submission
-        $submitBtn.prop('disabled', true).html(
-            '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Adding...'
-        );
-        
-        // Show loading state
-        const $modal = $form.closest('.modal');
-        const $modalContent = $modal.find('.modal-content');
-        $modalContent.css('opacity', '0.7').css('pointer-events', 'none');
-        
-        $.ajax({
-            type: 'POST',
-            url: $form.attr('action'),
-            data: $form.serialize(),
-            dataType: 'json',
-            success: function(response) {
-                if (response && response.status === 'success') {
-                    showStatus('Success', response.message || 'Device added successfully');
-                    // Reset form
-                    $form.trigger('reset');
-                    // Hide modal
-                    $modal.modal('hide');
-                    // Reload the page after a short delay to show success message
-                    setTimeout(() => window.location.reload(), 1000);
-                } else {
-                    const errorMsg = (response && response.message) || 'Failed to add device';
-                    showStatus('Error', errorMsg, true);
-                    $submitBtn.prop('disabled', false).html(originalBtnText);
-                }
-            },
-            error: function(xhr) {
-                const errorMsg = (xhr.responseJSON && xhr.responseJSON.message) || xhr.statusText || 'Unknown error';
-                showStatus('Error', 'Failed to add device: ' + errorMsg, true);
-                $submitBtn.prop('disabled', false).html(originalBtnText);
-            },
-            complete: function() {
-                // Re-enable modal content
-                $modalContent.css('opacity', '').css('pointer-events', '');
-            }
-        });
-    });
-
-    // Reset form and re-enable button when modal is closed
-    $('#addDeviceModal').on('hidden.bs.modal', function () {
-        const $form = $(this).find('form');
-        $form.trigger('reset');
-        $form.find('button[type="submit"]').prop('disabled', false).html('Add Device');
-    });
+    // Add device form will submit normally and reload the page
+    // No JavaScript needed for form submission
 
     // Remove device functionality
-    $(document).off('click', '.remove-device').on('click', '.remove-device', function(e) {
+    $(document).on('click', '.remove-device', function(e) {
         e.preventDefault();
-        const $button = $(this);
-        const deviceId = $button.data('device-id');
-        const originalBtnHtml = $button.html();
-        
         if (confirm('Are you sure you want to remove this device?')) {
-            // Disable the button and show loading state
-            $button.prop('disabled', true).html(
-                '<span class="spinner-border spinner-border-sm" role="status"></span>'
-            );
-            
-            $.ajax({
-                url: `/device/${deviceId}`,
-                method: 'DELETE',
-                dataType: 'json',
-                success: function(response) {
-                    if (response && response.status === 'success') {
-                        showStatus('Success', response.message || 'Device removed successfully');
-                        // Reload the page after a short delay to show success message
-                        setTimeout(() => window.location.reload(), 1000);
-                    } else {
-                        const errorMsg = (response && response.message) || 'Failed to remove device';
-                        showStatus('Error', errorMsg, true);
-                        $button.prop('disabled', false).html(originalBtnHtml);
-                    }
-                },
-                error: function(xhr) {
-                    const errorMsg = (xhr.responseJSON && xhr.responseJSON.message) || xhr.statusText || 'Unknown error';
-                    showStatus('Error', 'Failed to remove device: ' + errorMsg, true);
-                    $button.prop('disabled', false).html(originalBtnHtml);
-                }
-            });
+            const deviceId = $(this).data('device-id');
+            // Create a form and submit it to trigger a page reload
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = `/device/${deviceId}/delete`;  // We'll create this endpoint
+            document.body.appendChild(form);
+            form.submit();
         }
+    });
+    
+    // Show loading state on form submission
+    $('form').on('submit', function() {
+        const $form = $(this);
+        const $submitBtn = $form.find('button[type="submit"]');
+        $submitBtn.prop('disabled', true).html(
+            '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Processing...'
+        );
     });
 });
 </script>
